@@ -2,6 +2,8 @@ package com.example.mcpserver.tools;
 
 import com.example.mcpserver.mock.MockDataProvider;
 import com.example.mcpserver.model.Product;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -11,6 +13,7 @@ import java.util.List;
 @Component
 public class SamsungStoreTool {
 
+    private static final Logger log = LoggerFactory.getLogger(SamsungStoreTool.class);
     private final MockDataProvider mockDataProvider;
 
     public SamsungStoreTool(MockDataProvider mockDataProvider) {
@@ -21,7 +24,16 @@ public class SamsungStoreTool {
     public String searchSamsungStore(
             @ToolParam(description = "The Samsung phone to search for, e.g., 'S24 Ultra', 'Galaxy S24', 'S23 FE', 'samsung'") String productName) {
 
+        log.info("🏢 [MCP TOOL] searchSamsungStore called with: '{}'", productName);
+        long start = System.currentTimeMillis();
+
         List<Product> products = mockDataProvider.searchSamsungStore(productName);
+
+        log.info("   → Found {} products on Samsung.com India in {}ms",
+                products.size(), System.currentTimeMillis() - start);
+        products.forEach(p -> log.debug("     · {} ({}, {}) — {} | Freebie: {}",
+                p.getId(), p.getColor(), p.getStorage(), p.getFormattedPrice(), p.getFreebie()));
+
         if (products.isEmpty())
             return "No Samsung Galaxy phones found on Samsung.com India for: " + productName;
         return ToolOutputHelper.formatResults("🏢 SAMSUNG.COM INDIA (Official Store) — Samsung Galaxy S Series",

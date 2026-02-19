@@ -1,6 +1,8 @@
 package com.example.mcpserver.mock;
 
 import com.example.mcpserver.model.Product;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -13,6 +15,8 @@ import java.util.*;
  */
 @Component
 public class MockDataProvider {
+
+        private static final Logger log = LoggerFactory.getLogger(MockDataProvider.class);
 
         private final Map<String, List<Product>> amazonProducts = new HashMap<>();
         private final Map<String, List<Product>> flipkartProducts = new HashMap<>();
@@ -47,10 +51,19 @@ public class MockDataProvider {
         private static final String S23FE_OS = "Android 14, One UI 6.1 (4 years of updates)";
 
         public MockDataProvider() {
+                log.info("📦 [DATA] Initializing MockDataProvider...");
                 initializeAmazonData();
+                log.info("   ✅ Amazon India — {} products loaded",
+                                amazonProducts.getOrDefault("samsung", List.of()).size());
                 initializeFlipkartData();
+                log.info("   ✅ Flipkart — {} products loaded",
+                                flipkartProducts.getOrDefault("samsung", List.of()).size());
                 initializeSamsungStoreData();
+                log.info("   ✅ Samsung.com India — {} products loaded",
+                                samsungStoreProducts.getOrDefault("samsung", List.of()).size());
                 initializeCromaData();
+                log.info("   ✅ Croma — {} products loaded", cromaProducts.getOrDefault("samsung", List.of()).size());
+                log.info("📦 [DATA] Total: {} unique products indexed across 4 platforms", allProductsById.size());
         }
 
         // ═══════════════════════════════════════════════════════

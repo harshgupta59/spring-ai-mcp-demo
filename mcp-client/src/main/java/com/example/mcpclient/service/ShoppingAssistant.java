@@ -5,20 +5,20 @@ import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Service;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Shopping Assistant service that uses LLM with MCP tools
  * to answer shopping queries and find best deals.
- * 
- * Features:
- * - Conversation memory for multi-turn interactions
- * - Product search across Amazon, Flipkart, Swiggy, Blinkit
- * - Price comparison
- * - Order placement
  */
 @Service
 public class ShoppingAssistant {
+
+        private static final Logger log = LoggerFactory.getLogger(ShoppingAssistant.class);
 
         private final ChatClient chatClient;
         private final ChatMemory chatMemory;
@@ -26,10 +26,23 @@ public class ShoppingAssistant {
         public ShoppingAssistant(ChatClient.Builder chatClientBuilder,
                         SyncMcpToolCallbackProvider mcpToolProvider) {
 
+                log.info("🚀 [SERVICE] Initializing ShoppingAssistant...");
+
                 // Create chat memory with a sliding window (keeps last 20 messages)
                 this.chatMemory = MessageWindowChatMemory.builder()
                                 .maxMessages(20)
                                 .build();
+                log.info("🧠 [SERVICE] Chat memory created (sliding window: 20 messages)");
+
+                // Discover MCP tools
+                ToolCallback[] tools = mcpToolProvider.getToolCallbacks();
+                log.info("🔧 [SERVICE] Discovered {} MCP tools via Streamable HTTP:", tools.length);
+                for (ToolCallback tool : tools) {
+                        log.info("   🔨 Tool: {} — {}", tool.getToolDefinition().name(),
+                                        tool.getToolDefinition().description().substring(0,
+                                                        Math.min(80, tool.getToolDefinition().description().length()))
+                                                        + "...");
+                }
 
                 // Build ChatClient with MCP tools and memory
                 this.chatClient = chatClientBuilder
@@ -72,45 +85,62 @@ public class ShoppingAssistant {
                                                    - Friendly, knowledgeable Samsung expert
                                                    - Always give a clear recommendation with reasoning
                                                 """)
-                                .defaultTools(mcpToolProvider.getToolCallbacks())
+                                .defaultTools(tools)
                                 .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
                                 .build();
+
+                log.info("✅ [SERVICE] ShoppingAssistant ready! System prompt loaded, {} tools registered",
+                                tools.length);
         }
 
         /**
          * Process a shopping query using LLM + MCP tools
-         * Maintains conversation memory for multi-turn interactions
          */
         public String chat(String userMessage) {
-                return chatClient.prompt()
+                log.info("💬 [SERVICE] Processing message: \"{}\"", userMessage);
+                log.info("   → Sending to LLM (Ollama) with system prompt + {} MCP tools + memory", "8");
+
+                long start = System.currentTimeMillis();
+                String response = chatClient.prompt()
                                 .user(userMessage)
                                 .call()
                                 .content();
+
+                long elapsed = System.currentTimeMillis() - start;
+                log.info("✅ [SERVICE] LLM responded in {}ms ({} chars)", elapsed,
+                                response != null ? response.length() : 0);
+                return response;
         }
 
         /**
          * Process a shopping query with a specific conversation ID
-         * Useful for maintaining separate conversations for different users
          */
         public String chat(String conversationId, String userMessage) {
-                return chatClient.prompt()
+                log.info("💬 [SERVICE] Processing message for conversation '{}'", conversationId);
+                log.info("   → Message: \"{}\"", userMessage);
+                log.info("   → Loading conversation history from memory...");
+                log.info("   → Sending to LLM (Ollama) with system prompt + MCP tools + memory");
+
+                long start = System.currentTimeMillis();
+                String response = chatClient.prompt()
                                 .user(userMessage)
                                 .advisors(advisor -> advisor.param(ChatMemory.CONVERSATION_ID, conversationId))
                                 .call()
                                 .content();
+
+                long elapsed = System.currentTimeMillis() - start;
+                log.info("✅ [SERVICE] LLM responded in {}ms ({} chars) for conversation '{}'",
+                                elapsed, response != null ? response.length() : 0, conversationId);
+                return response;
         }
 
-        /**
-         * Clear conversation memory for a specific conversation
-         */
         public void clearMemory(String conversationId) {
+                log.info("🧹 [SERVICE] Clearing memory for conversation: {}", conversationId);
                 chatMemory.clear(conversationId);
         }
 
-        /**
-         * Clear default conversation memory (start fresh)
-         */
         public void clearMemory() {
+                log.info("🧹 [SERVICE] Clearing default conversation memory");
                 chatMemory.clear("default");
         }
 }

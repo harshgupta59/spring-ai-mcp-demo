@@ -2,6 +2,8 @@ package com.example.mcpserver.tools;
 
 import com.example.mcpserver.mock.MockDataProvider;
 import com.example.mcpserver.model.Product;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -11,6 +13,7 @@ import java.util.*;
 @Component
 public class PriceComparator {
 
+    private static final Logger log = LoggerFactory.getLogger(PriceComparator.class);
     private final MockDataProvider mockDataProvider;
 
     public PriceComparator(MockDataProvider mockDataProvider) {
@@ -21,7 +24,16 @@ public class PriceComparator {
     public String comparePrices(
             @ToolParam(description = "The Samsung phone to compare, e.g., 'S24 Ultra', 'Galaxy S24', 'S23 FE'") String productName) {
 
+        log.info("📊 [MCP TOOL] comparePrices called with: '{}'", productName);
+        long start = System.currentTimeMillis();
+
         Map<String, List<Product>> allResults = mockDataProvider.searchAllPlatforms(productName);
+
+        int totalProducts = allResults.values().stream().mapToInt(List::size).sum();
+        log.info("   → Searching across 4 platforms...");
+        allResults.forEach((platform, products) -> log.info("     · {} → {} products", platform, products.size()));
+        log.info("   → Total: {} products found in {}ms", totalProducts, System.currentTimeMillis() - start);
+
         List<Product> allProducts = new ArrayList<>();
         allResults.values().forEach(allProducts::addAll);
 
@@ -34,6 +46,17 @@ public class PriceComparator {
             String key = p.getName() + " " + p.getStorage();
             grouped.computeIfAbsent(key, k -> new ArrayList<>()).add(p);
         }
+
+        log.info("   → Grouped into {} model+storage combinations:", grouped.size());
+        grouped.forEach((key, variants) -> {
+            variants.sort(Comparator.comparingDouble(Product::getPrice));
+            Product best = variants.get(0);
+            Product worst = variants.get(variants.size() - 1);
+            double spread = worst.getPrice() - best.getPrice();
+            log.info("     · {} — {} variants, cheapest: {} on {}, spread: ₹{}",
+                    key, variants.size(), best.getFormattedPrice(), best.getPlatform(),
+                    String.format("%,.0f", spread));
+        });
 
         StringBuilder sb = new StringBuilder();
         sb.append("📊 4-PLATFORM PRICE COMPARISON: '").append(productName).append("'\n");
@@ -86,6 +109,8 @@ public class PriceComparator {
         }
 
         sb.append("💡 To order, tell me the product ID and I'll complete the purchase.\n");
+
+        log.info("✅ [MCP TOOL] comparePrices complete — {} chars output", sb.length());
         return sb.toString();
     }
 }
