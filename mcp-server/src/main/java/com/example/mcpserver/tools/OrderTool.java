@@ -1,5 +1,6 @@
 package com.example.mcpserver.tools;
 
+import com.example.mcpserver.ap2.PaymentService;
 import com.example.mcpserver.mock.MockDataProvider;
 import com.example.mcpserver.model.Product;
 import org.slf4j.Logger;
@@ -10,14 +11,20 @@ import org.springframework.stereotype.Component;
 
 import java.util.Optional;
 
+/**
+ * MCP Tool for product details and order status.
+ * Purchase flow is now handled by AP2PaymentTool.
+ */
 @Component
 public class OrderTool {
 
     private static final Logger log = LoggerFactory.getLogger(OrderTool.class);
     private final MockDataProvider mockDataProvider;
+    private final PaymentService paymentService;
 
-    public OrderTool(MockDataProvider mockDataProvider) {
+    public OrderTool(MockDataProvider mockDataProvider, PaymentService paymentService) {
         this.mockDataProvider = mockDataProvider;
+        this.paymentService = paymentService;
     }
 
     @Tool(description = "Get detailed information about a specific product by its ID. Use this when user wants to know more about a product or is considering buying it.")
@@ -25,7 +32,6 @@ public class OrderTool {
             @ToolParam(description = "The product ID, e.g., 'AMZ-S24U-256', 'FK-S24U-512', 'SS-S24-128'") String productId) {
 
         log.info("🔍 [MCP TOOL] getProductDetails called with ID: '{}'", productId);
-
         Optional<Product> productOpt = mockDataProvider.getProductById(productId);
 
         if (productOpt.isEmpty()) {
@@ -40,68 +46,34 @@ public class OrderTool {
         return product.toDetailedCard();
     }
 
-    @Tool(description = "Place an order for a product. Use this when the user confirms they want to buy a specific product. Requires product ID, quantity, customer name, and delivery address.")
-    public String placeOrder(
-            @ToolParam(description = "The product ID to order, e.g., 'FK-S24U-256', 'AMZ-S24U-512'") String productId,
-            @ToolParam(description = "Quantity to order, e.g., 1, 2, 3") int quantity,
-            @ToolParam(description = "Customer's full name") String customerName,
-            @ToolParam(description = "Full delivery address including city and pincode") String deliveryAddress) {
-
-        log.info("🛒 [MCP TOOL] placeOrder called:");
-        log.info("   Product ID: {}", productId);
-        log.info("   Quantity: {}", quantity);
-        log.info("   Customer: {}", customerName);
-        log.info("   Address: {}", deliveryAddress);
-
-        Optional<Product> productOpt = mockDataProvider.getProductById(productId);
-        if (productOpt.isEmpty()) {
-            log.error("   → ❌ ORDER FAILED: Product '{}' not found", productId);
-            return "❌ Order failed: Product not found with ID: " + productId;
-        }
-
-        Product product = productOpt.get();
-
-        if (!product.isInStock()) {
-            log.warn("   → ❌ ORDER FAILED: {} is out of stock on {}", product.getName(), product.getPlatform());
-            return "❌ Order failed: " + product.getName() + " is currently out of stock on " + product.getPlatform();
-        }
-
-        if (product.getStockCount() < quantity) {
-            log.warn("   → ❌ ORDER FAILED: Only {} units available, requested {}", product.getStockCount(), quantity);
-            return "❌ Order failed: Only " + product.getStockCount() + " units available. You requested " + quantity
-                    + " units.";
-        }
-
-        MockDataProvider.Order order = mockDataProvider.placeOrder(productId, quantity, customerName, deliveryAddress);
-
-        if (order == null) {
-            log.error("   → ❌ ORDER FAILED: Unknown error during order placement");
-            return "❌ Order failed: Unable to process order. Please try again.";
-        }
-
-        log.info("   → ✅ ORDER CONFIRMED!");
-        log.info("     Order ID: {}", order.orderId());
-        log.info("     Product: {} on {}", product.getName(), product.getPlatform());
-        log.info("     Total: ₹{}", String.format("%,.0f", order.totalAmount()));
-        log.info("     Delivery: {} via {}", order.expectedDelivery(), order.deliveryPartner());
-
-        return order.toSummary();
-    }
-
-    @Tool(description = "Check the status of an existing order by order ID.")
+    @Tool(description = "Check the status of an existing order by order ID, or look up an AP2 transaction by transaction ID.")
     public String checkOrderStatus(
-            @ToolParam(description = "The order ID, e.g., 'ORD-1234567890'") String orderId) {
+            @ToolParam(description = "The order ID (e.g., 'ORD-1234567890') or AP2 transaction ID (e.g., 'TXN-A1B2C3D4E5F6')") String orderId) {
 
         log.info("📋 [MCP TOOL] checkOrderStatus called with: '{}'", orderId);
 
+        // Check AP2 transactions first
+        if (orderId.startsWith("TXN-")) {
+            return paymentService.getTransaction(orderId)
+                    .map(txn -> {
+                        log.info("   → ✅ AP2 Transaction found: {}", orderId);
+                        return txn.toSummary();
+                    })
+                    .orElseGet(() -> {
+                        log.warn("   → ❌ Transaction NOT FOUND: '{}'", orderId);
+                        return "❌ Transaction not found: " + orderId;
+                    });
+        }
+
+        // Fall back to legacy orders
         return mockDataProvider.getOrderById(orderId)
                 .map(order -> {
-                    log.info("   → ✅ Order found: {} — Status: {}", orderId, order.status());
+                    log.info("   → ✅ Order found: {}", orderId);
                     return order.toSummary();
                 })
                 .orElseGet(() -> {
                     log.warn("   → ❌ Order NOT FOUND: '{}'", orderId);
-                    return "❌ Order not found with ID: " + orderId;
+                    return "❌ Order not found: " + orderId;
                 });
     }
 }
